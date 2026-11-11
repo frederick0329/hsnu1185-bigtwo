@@ -111,7 +111,7 @@ th{font-size:12px;opacity:.7;font-weight:500}
     <button class="sec" id="btnCopy" style="width:100%;margin-top:8px">複製邀請訊息</button>
   </div>
   <div class="panel">
-    <label>座位（最多 4 人，空位會由電腦補上）</label>
+    <label>座位（最多 4 人，沒上線的同學由電腦代打，本人之後進房間可接手）</label>
     <div class="seatlist" id="seatList"></div>
   </div>
   <div class="row" id="hostCtl">
@@ -235,9 +235,15 @@ let view=null, selected=new Set(), sortMode='rank', botTimer=null;
 
 function newHostState(){ return {seats:[],hands:[],turn:0,last:null,first:true,log:[],scores:[0,0,0,0],phase:'lobby',results:null,round:0,winner:-1}; }
 function botName(){ const used=G.seats.map(s=>s.name); return BOT_NAMES.find(n=>!used.includes(n))||('電腦'+G.seats.length); }
+// 沒上線的同學由電腦代打；本人之後上線可直接接手
+function botSeat(){
+  const used=G.seats.map(s=>s.name);
+  const absent=Object.keys(ROSTER).find(n=>!used.includes(n));
+  return absent?{name:absent,bot:true,away:true,conn:null}:{name:botName(),bot:true,conn:null};
+}
 
 function startRound(){
-  while(G.seats.length<4) G.seats.push({name:botName(),bot:true,conn:null});
+  while(G.seats.length<4) G.seats.push(botSeat());
   G.hands=deal(); G.turn=G.hands.findIndex(h=>h.includes(0));
   G.last=null; G.first=true; G.phase='play'; G.results=null; G.winner=-1; G.round++;
   G.log=['第 '+G.round+' 局開始，'+G.seats[G.turn].name+' 拿 ♣3 先出'];
@@ -297,7 +303,7 @@ function handleHostMsg(conn,msg){
   if(msg.t==='hello'){
     const name=String(msg.name||'玩家').slice(0,10);
     let idx=G.seats.findIndex(s=>s.away&&s.name===name);
-    if(idx>=0){ Object.assign(G.seats[idx],{conn,bot:false,away:false}); G.log.push(name+' 回來了'); }
+    if(idx>=0){ Object.assign(G.seats[idx],{conn,bot:false,away:false}); G.log.push(name+' 上線了，換本人打'); }
     else if(G.phase==='lobby'&&G.seats.length<4){ G.seats.push({name,conn,bot:false}); idx=G.seats.length-1; }
     else { conn.send({t:'err',msg:G.phase==='lobby'?'房間滿了':'遊戲已經開始了'}); setTimeout(()=>conn.close(),500); return; }
     conn._seat=idx; broadcast(); scheduleBot();
@@ -308,7 +314,7 @@ function handleHostMsg(conn,msg){
 function onClientLeft(conn){
   const i=G.seats.findIndex(s=>s.conn===conn); if(i<0) return;
   if(G.phase==='lobby'){ G.seats.splice(i,1); G.seats.forEach((s,k)=>{if(s.conn)s.conn._seat=k}); }
-  else { Object.assign(G.seats[i],{conn:null,bot:true,away:true}); G.log.push(G.seats[i].name+' 斷線，先由電腦代打（用同名字重新加入可接回）'); }
+  else { Object.assign(G.seats[i],{conn:null,bot:true,away:true}); G.log.push(G.seats[i].name+' 斷線，先由電腦代打（重新進房間可接回）'); }
   broadcast(); scheduleBot();
 }
 
@@ -366,7 +372,7 @@ function cardEl(c){
   d.innerHTML='<span class="r">'+RANKS[rankOf(c)]+'</span><span class="s">'+SUITS[suitOf(c)]+'</span><span class="big">'+SUITS[suitOf(c)]+'</span>';
   return d;
 }
-function seatLabel(s){ return s.name+(s.away?'（斷線·電腦代打）':s.bot?'（電腦）':''); }
+function seatLabel(s){ return s.name+(s.away?'（電腦代打）':s.bot?'（電腦）':''); }
 
 function applyView(v){
   const prevHand=view?view.hand.join():'';
@@ -468,7 +474,7 @@ if(/^#[A-Z0-9]{5}$/i.test(location.hash)) $('codeIn').value=location.hash.slice(
 $('btnHost').onclick=()=>{ if(getName()) hostRoom(); };
 $('btnJoin').onclick=()=>{ if(getName()) joinRoom($('codeIn').value); };
 $('btnSolo').onclick=()=>{ if(getName()) soloGame(); };
-$('btnAddBot').onclick=()=>{ if(G.seats.length<4){ G.seats.push({name:botName(),bot:true}); broadcast(); } };
+$('btnAddBot').onclick=()=>{ if(G.seats.length<4){ G.seats.push(botSeat()); broadcast(); } };
 $('btnStart').onclick=()=>startRound();
 $('btnCopy').onclick=()=>{
   const base=location.protocol.startsWith('http')?location.href.split('#')[0]+'#'+roomCode:'';
