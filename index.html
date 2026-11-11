@@ -73,8 +73,12 @@ th{font-size:12px;opacity:.7;font-weight:500}
   <h1>大老二</h1>
   <div class="sub">HSNU 1185 · 四人連線</div>
   <div class="panel" id="gate">
-    <label>輸入你的學號</label>
-    <div class="row"><input id="idIn" inputmode="numeric" maxlength="4" placeholder="學號" style="flex:2"><button id="btnId">進入</button></div>
+    <label>你是誰？</label>
+    <div class="row" id="whoBtns" style="flex-wrap:wrap"></div>
+    <div id="idStep" hidden style="margin-top:12px">
+      <label id="idLabel">輸入你的學號</label>
+      <div class="row"><input id="idIn" inputmode="numeric" maxlength="4" placeholder="學號" style="flex:2"><button id="btnId">進入</button></div>
+    </div>
   </div>
   <div class="panel" id="hello" hidden>
     <div style="font-size:18px">嗨，<b id="nameShow"></b>！ <a href="#" id="btnLogout" style="color:#fff;opacity:.6;font-size:13px;margin-left:8px">不是我</a></div>
@@ -437,23 +441,29 @@ function getName(){
   myName=n; return n;
 }
 // ===== 學號登入 =====
-const ROSTER={ '36161420f415be8d':'Fred','9251c632dcda4e3f':'Victor','659b0b6b0fc63930':'Anthony','f292ff60f3773744':'Jason' };
+const ROSTER={ Fred:'36161420f415be8d', Victor:'9251c632dcda4e3f', Anthony:'659b0b6b0fc63930', Jason:'f292ff60f3773744' };
+let pickedName=null;
 async function idHash(id){
   const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('hsnu1185:'+id));
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);
 }
-async function tryLogin(id,silent){
+function pick(name){
+  pickedName=name;
+  [...$('whoBtns').children].forEach(b=>b.className=b.textContent===name?'':'sec');
+  $('idLabel').textContent=name+'，輸入你的學號'; $('idStep').hidden=false; $('idIn').value=''; $('idIn').focus();
+}
+Object.keys(ROSTER).forEach(n=>{ const b=document.createElement('button'); b.className='sec'; b.textContent=n; b.style.minWidth='40%'; b.onclick=()=>pick(n); $('whoBtns').appendChild(b); });
+async function tryLogin(name,id,silent){
   id=String(id||'').trim().replace(/^0+/,'');
-  const name=id&&ROSTER[await idHash(id)];
-  if(!name){ if(!silent) toast('學號不對，進不去喔'); return; }
+  if(!name||!ROSTER[name]||!id||ROSTER[name]!==await idHash(id)){ if(!silent) toast('學號不對，進不去喔'); return; }
   $('nameIn').value=name; $('nameShow').textContent=name;
   $('gate').hidden=true; $('hello').hidden=false; $('actions').hidden=false;
-  try{localStorage.setItem('dlr_id',id)}catch(e){}
+  try{localStorage.setItem('dlr_login',JSON.stringify({name,id}))}catch(e){}
 }
-$('btnId').onclick=()=>tryLogin($('idIn').value);
-$('idIn').onkeydown=e=>{ if(e.key==='Enter') tryLogin($('idIn').value); };
-$('btnLogout').onclick=e=>{ e.preventDefault(); try{localStorage.removeItem('dlr_id')}catch(_){} $('gate').hidden=false; $('hello').hidden=true; $('actions').hidden=true; $('idIn').value=''; };
-try{ const saved=localStorage.getItem('dlr_id'); if(saved) tryLogin(saved,true); }catch(e){}
+$('btnId').onclick=()=>tryLogin(pickedName,$('idIn').value);
+$('idIn').onkeydown=e=>{ if(e.key==='Enter') tryLogin(pickedName,$('idIn').value); };
+$('btnLogout').onclick=e=>{ e.preventDefault(); try{localStorage.removeItem('dlr_login')}catch(_){} $('gate').hidden=false; $('hello').hidden=true; $('actions').hidden=true; $('idStep').hidden=true; pickedName=null; [...$('whoBtns').children].forEach(b=>b.className='sec'); };
+try{ const s=JSON.parse(localStorage.getItem('dlr_login')||'null'); if(s) tryLogin(s.name,s.id,true); }catch(e){}
 if(/^#[A-Z0-9]{5}$/i.test(location.hash)) $('codeIn').value=location.hash.slice(1).toUpperCase();
 $('btnHost').onclick=()=>{ if(getName()) hostRoom(); };
 $('btnJoin').onclick=()=>{ if(getName()) joinRoom($('codeIn').value); };
