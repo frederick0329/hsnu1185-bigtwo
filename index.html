@@ -85,10 +85,7 @@ th{font-size:12px;opacity:.7;font-weight:500}
     <input id="nameIn" type="hidden">
   </div>
   <div class="panel" id="actions" hidden>
-    <button id="btnHost" style="width:100%">開新房間</button>
-    <div style="height:10px"></div>
-    <label>或輸入朋友給的房號</label>
-    <div class="row"><input id="codeIn" maxlength="5" placeholder="房號" style="text-transform:uppercase;flex:2"><button id="btnJoin" class="sec">加入</button></div>
+    <button id="btnEnter" style="width:100%;padding:14px;font-size:18px">入座</button>
     <div style="height:10px"></div>
     <button id="btnSolo" class="sec" style="width:100%">單機練習（跟 3 個電腦打）</button>
   </div>
@@ -104,21 +101,16 @@ th{font-size:12px;opacity:.7;font-weight:500}
 
 <!-- ===== Waiting room ===== -->
 <div id="room" class="wrap" hidden>
-  <h1>等待中</h1>
-  <div class="panel" id="codeBox">
-    <div class="sub" style="margin:0">把房號傳給朋友</div>
-    <div class="code" id="codeShow">-----</div>
-    <button class="sec" id="btnCopy" style="width:100%;margin-top:8px">複製邀請訊息</button>
-  </div>
+  <h1>1185 牌桌</h1>
+  <div class="sub">有人進來會自動坐下</div>
   <div class="panel">
-    <label>座位（最多 4 人，沒上線的同學由電腦代打，本人之後進房間可接手）</label>
+    <label>座位（沒上線的同學由電腦代打，本人之後進來可接手）</label>
     <div class="seatlist" id="seatList"></div>
   </div>
   <div class="row" id="hostCtl">
-    <button class="sec" id="btnAddBot">加一個電腦</button>
     <button id="btnStart">開始</button>
   </div>
-  <div class="sub" id="waitMsg" hidden>等房主開始…</div>
+  <div class="sub" id="waitMsg" hidden>等桌主開始…</div>
 </div>
 
 <!-- ===== Game ===== -->
@@ -324,34 +316,43 @@ const CODE_CHARS='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function genCode(){ let s=''; for(let i=0;i<5;i++) s+=CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]; return s; }
 function needPeer(){ if(typeof Peer==='undefined'){ toast('連線元件載入失敗，請檢查網路後重新整理'); return false;} return true; }
 
-function hostRoom(){
+const TABLE_ID='hsnu1185-bigtwo-table-v1';
+let joinTries=0;
+// 第一個進來的人當桌主；桌子已經有人就直接坐下
+function enterTable(){
   if(!needPeer()) return;
-  roomCode=genCode(); toast('開房中…');
-  peer=new Peer(PREFIX+roomCode);
-  peer.on('open',()=>{
-    isHost=true; G=newHostState(); G.seats.push({name:myName,local:true});
-    show('room'); $('codeShow').textContent=roomCode; broadcast();
+  toast('入座中…');
+  isHost=false; G=null; hostConn=null;
+  const p=new Peer(TABLE_ID); peer=p;
+  p.on('open',()=>{
+    joinTries=0; isHost=true; G=newHostState(); G.seats.push({name:myName,local:true});
+    broadcast();
   });
-  peer.on('connection',conn=>{
+  p.on('connection',conn=>{
     conn.on('data',m=>handleHostMsg(conn,m));
     conn.on('close',()=>onClientLeft(conn));
     conn.on('error',()=>onClientLeft(conn));
   });
-  peer.on('error',e=>{ if(e.type==='unavailable-id'){ peer.destroy(); hostRoom(); } else toast('連線錯誤：'+e.type); });
-  peer.on('disconnected',()=>{ try{peer.reconnect()}catch(e){} });
-}
-function joinRoom(code){
-  if(!needPeer()) return;
-  code=code.trim().toUpperCase(); if(code.length<5){toast('房號是 5 個字');return;}
-  roomCode=code; toast('連線中…');
-  peer=new Peer();
-  peer.on('open',()=>{
-    hostConn=peer.connect(PREFIX+code,{reliable:true});
-    hostConn.on('open',()=>hostConn.send({t:'hello',name:myName}));
-    hostConn.on('data',m=>{ if(m.t==='view') applyView(m.v); else if(m.t==='err') toast(m.msg); });
-    hostConn.on('close',()=>{ toast('跟房主斷線了'); });
+  p.on('error',e=>{
+    if(e.type==='unavailable-id'){ p.destroy(); joinTable(); }
+    else if(!isHost){ p.destroy(); retryEnter(); }
+    else toast('連線錯誤：'+e.type);
   });
-  peer.on('error',e=>toast(e.type==='peer-unavailable'?'找不到這個房號':'連線錯誤：'+e.type));
+  p.on('disconnected',()=>{ if(isHost) try{p.reconnect()}catch(e){} });
+}
+function joinTable(){
+  const p=new Peer(); peer=p;
+  p.on('open',()=>{
+    const c=p.connect(TABLE_ID,{reliable:true}); hostConn=c;
+    c.on('open',()=>{ joinTries=0; c.send({t:'hello',name:myName}); });
+    c.on('data',m=>{ if(m.t==='view') applyView(m.v); else if(m.t==='err') toast(m.msg); });
+    c.on('close',()=>{ if(peer!==p) return; toast('桌主離開了，重新入座中…'); p.destroy(); $('resultModal').hidden=true; view=null; setTimeout(enterTable,500+Math.random()*1500); });
+  });
+  p.on('error',e=>{ p.destroy(); retryEnter(); });
+}
+function retryEnter(){
+  if(++joinTries>6){ toast('連不上牌桌，請重新整理再試'); joinTries=0; return; }
+  setTimeout(enterTable,1500+Math.random()*1500);
 }
 function soloGame(){
   isHost=true; G=newHostState(); G.seats.push({name:myName,local:true}); startRound();
@@ -359,7 +360,7 @@ function soloGame(){
 function sendAct(a){
   if(isHost){ const err=act(0,a); if(err) toast(err); }
   else if(hostConn&&hostConn.open) hostConn.send({t:'act',a});
-  else toast('沒有連上房主');
+  else toast('沒有連上桌主');
 }
 
 // ===== UI =====
@@ -383,12 +384,10 @@ function applyView(v){
 }
 function renderRoom(){
   show('room');
-  $('codeShow').textContent=roomCode;
   $('seatList').innerHTML='';
   view.seats.forEach((s,i)=>{ const d=document.createElement('div'); d.textContent=(i+1)+'. '+seatLabel(s)+(i===0?' 👑':'')+(i===mySeat?'（你）':''); $('seatList').appendChild(d); });
   for(let i=view.seats.length;i<4;i++){ const d=document.createElement('div'); d.style.opacity=.4; d.textContent=(i+1)+'. 空位'; $('seatList').appendChild(d); }
   $('hostCtl').hidden=!isHost; $('waitMsg').hidden=isHost;
-  $('btnAddBot').disabled=view.seats.length>=4;
 }
 function sortedHand(){
   const h=[...view.hand];
@@ -435,7 +434,7 @@ function renderResults(){
   v.seats.forEach((s,i)=>{ const r=v.results[i];
     h+='<tr class="'+(i===w?'win':'')+'"><td>'+esc(i===mySeat?'你':s.name)+'</td><td>'+(i===w?'—':r.left)+'</td><td>'+(i===w?'—':r.twos)+'</td><td>'+(i===w?'—':'×'+r.mult)+'</td><td class="'+(r.delta<0?'neg':'')+'">'+(r.delta>0?'+':'')+r.delta+'</td><td>'+v.scores[i]+'</td></tr>'; });
   h+='</table>';
-  if(isHost) h+='<button id="btnNext" style="width:100%">下一局</button>'; else h+='<div class="sub" style="margin:0">等房主開下一局…</div>';
+  if(isHost) h+='<button id="btnNext" style="width:100%">下一局</button>'; else h+='<div class="sub" style="margin:0">等桌主開下一局…</div>';
   $('resultBox').innerHTML=h;
   if(isHost) $('btnNext').onclick=()=>startRound();
 }
@@ -470,17 +469,9 @@ $('btnId').onclick=()=>tryLogin(pickedName,$('idIn').value);
 $('idIn').onkeydown=e=>{ if(e.key==='Enter') tryLogin(pickedName,$('idIn').value); };
 $('btnLogout').onclick=e=>{ e.preventDefault(); try{localStorage.removeItem('dlr_login')}catch(_){} $('gate').hidden=false; $('hello').hidden=true; $('actions').hidden=true; $('idStep').hidden=true; pickedName=null; [...$('whoBtns').children].forEach(b=>b.className='sec'); };
 try{ const s=JSON.parse(localStorage.getItem('dlr_login')||'null'); if(s) tryLogin(s.name,s.id,true); }catch(e){}
-if(/^#[A-Z0-9]{5}$/i.test(location.hash)) $('codeIn').value=location.hash.slice(1).toUpperCase();
-$('btnHost').onclick=()=>{ if(getName()) hostRoom(); };
-$('btnJoin').onclick=()=>{ if(getName()) joinRoom($('codeIn').value); };
+$('btnEnter').onclick=()=>{ if(getName()) enterTable(); };
 $('btnSolo').onclick=()=>{ if(getName()) soloGame(); };
-$('btnAddBot').onclick=()=>{ if(G.seats.length<4){ G.seats.push(botSeat()); broadcast(); } };
 $('btnStart').onclick=()=>startRound();
-$('btnCopy').onclick=()=>{
-  const base=location.protocol.startsWith('http')?location.href.split('#')[0]+'#'+roomCode:'';
-  const msg='來打大老二！房號：'+roomCode+(base?'\n'+base:'');
-  (navigator.clipboard?navigator.clipboard.writeText(msg):Promise.reject()).then(()=>toast('已複製'),()=>toast('房號：'+roomCode));
-};
 $('btnPlay').onclick=()=>sendAct({type:'play',cards:[...selected]});
 $('btnPass').onclick=()=>{ selected.clear(); sendAct({type:'pass'}); };
 $('btnSort').onclick=()=>{ sortMode=sortMode==='rank'?'suit':'rank'; renderGame(); };
