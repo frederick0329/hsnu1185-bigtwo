@@ -94,6 +94,7 @@ th{font-size:12px;opacity:.7;font-weight:500}
     · 大小：3 &lt; 4 &lt; … &lt; K &lt; A &lt; 2；花色 ♣ &lt; ♦ &lt; ♥ &lt; ♠<br>
     · 拿 ♣3 的人先出，第一手要包含 ♣3<br>
     · 可出：單張、對子、五張（順子 &lt; 葫蘆 &lt; 鐵支 &lt; 同花順；單純同花不能出）<br>
+    · 順子最大是 2-3-4-5-6，其次 A-2-3-4-5，再來 10-J-Q-K-A…；J-Q-K-A-2 這類繞過去的不行<br>
     · 其他三家都 Pass，最後出牌的人重新自由出<br>
     · <b>計分</b>：有人出完就結算。輸家每剩 1 張 = 1 點；剩 10 張以上 ×2；手上每張 2 再 ×2（可疊加）。贏家拿走所有輸家的點數
   </div>
@@ -163,11 +164,15 @@ function evalCombo(cards){
   if(groups.length===5){
     const rs=[...ranks].sort((a,b)=>a-b), j=rs.join(',');
     if(rs[4]-rs[0]===4 && rs[4]<=11) topRank=rs[4];        // 3-7 … 10-A
-    else if(j==='0,1,2,11,12') topRank=2;                    // A2345 (top = 5)
-    else if(j==='0,1,2,3,12') topRank=3;                     // 23456 (top = 6)
+    else if(j==='0,1,2,11,12') topRank=100;                  // A2345：第二大
+    else if(j==='0,1,2,3,12') topRank=101;                   // 23456：最大
   }
   let cat=0, sub=0;
-  if(topRank>=0){ const top=Math.max(...cs.filter(c=>rankOf(c)===topRank)); cat=flush?5:1; sub=top; }
+  if(topRank>=0){
+    cat=flush?5:1;
+    if(topRank>=100){ const two=cs.find(c=>rankOf(c)===12); sub=(topRank===101?70:60)+suitOf(two); } // 同組比 2 的花色
+    else sub=Math.max(...cs.filter(c=>rankOf(c)===topRank));
+  }
   else if(groups[0][1]===4){ cat=4; sub=groups[0][0]; }
   else if(groups[0][1]===3 && groups[1][1]===2){ cat=3; sub=groups[0][0]; }
   // 台灣規則：單純同花不算牌型
